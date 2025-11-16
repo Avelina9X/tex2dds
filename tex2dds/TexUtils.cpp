@@ -139,6 +139,17 @@ void _FillChannel( const Image *pOutputSlice, float fFillVal )
     }
 }
 
+template<typename T>
+void _InvertChannel( const Image *pOutputSlice )
+{
+    for ( size_t y = 0; y < pOutputSlice->height; ++y ) {
+        auto row = reinterpret_cast<T *>( pOutputSlice->pixels + y * pOutputSlice->rowPitch );
+        for ( size_t x = 0; x < pOutputSlice->width; ++x ) {
+            row[x] = TypeMax<T>() - row[x];
+        }
+    }
+}
+
 HRESULT ExtractChannel( const std::unique_ptr<ScratchImage> &pInputImage, char swizzle, std::unique_ptr<ScratchImage> &pOutputSlice )
 {
     auto singleChannelFormat = CreateOutputFormat( pInputImage->GetMetadata().format, 1 );
@@ -150,10 +161,12 @@ HRESULT ExtractChannel( const std::unique_ptr<ScratchImage> &pInputImage, char s
 
     bool fill = false;
     float fillVal;
+    bool invert = false;
 
     switch ( swizzle ) {
         case 'r': channelFlags |= TEX_FILTER_RGB_COPY_RED; break;
         case 'g': channelFlags |= TEX_FILTER_RGB_COPY_GREEN; break;
+        case 'G': channelFlags |= TEX_FILTER_RGB_COPY_GREEN; invert = true; break;
         case 'b': channelFlags |= TEX_FILTER_RGB_COPY_BLUE; break;
         case 'a': channelFlags |= TEX_FILTER_RGB_COPY_ALPHA; break;
 
@@ -191,12 +204,11 @@ HRESULT ExtractChannel( const std::unique_ptr<ScratchImage> &pInputImage, char s
         return hr;
     }
 
+    auto bitDepth = BitsPerColor( pOutputSlice->GetMetadata().format );
+    auto formatType = FormatDataType( pOutputSlice->GetMetadata().format );
+
     if ( fill ) {
-        auto bitDepth = BitsPerColor( pOutputSlice->GetMetadata().format );
-        auto formatType = FormatDataType( pOutputSlice->GetMetadata().format );
-
         switch ( formatType ) {
-
             case FORMAT_TYPE_UNORM:
                 if ( bitDepth == 8 ) {
                     _FillChannel<uint8_t>( pOutputSlice->GetImages(), fillVal );
@@ -205,6 +217,28 @@ HRESULT ExtractChannel( const std::unique_ptr<ScratchImage> &pInputImage, char s
 
                 if ( bitDepth == 16 ) {
                     _FillChannel<uint16_t>( pOutputSlice->GetImages(), fillVal );
+                    break;
+                }
+
+                std::cerr << "Unsupported bitdepth!" << std::endl;
+                return E_FAIL;
+
+            default:
+                std::cerr << "Unsupported format!" << std::endl;
+                return E_FAIL;
+        }
+    }
+
+    if ( invert ) {
+        switch ( formatType ) {
+            case FORMAT_TYPE_UNORM:
+                if ( bitDepth == 8 ) {
+                    _InvertChannel<uint8_t>( pOutputSlice->GetImages() );
+                    break;
+                }
+
+                if ( bitDepth == 16 ) {
+                    _InvertChannel<uint16_t>( pOutputSlice->GetImages() );
                     break;
                 }
 
